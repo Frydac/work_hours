@@ -161,7 +161,8 @@ impl Day {
                                 // add remove button
                                 if ui
                                     // ⊗ ⛒ 🗙 ×
-                                    .add(egui::Button::new("×").rounding(10.0))
+                                    // .add(egui::Button::new("×").rounding(10.0))
+                                    .add(egui::Button::new("×").corner_radius(10.0))
                                     .on_hover_text("Remove duration")
                                     .clicked()
                                 {
