@@ -6,6 +6,9 @@ I can use it to keep track of my work hours within a day/week.
 
 A bunch of values are hard coded to fit my needs.
 
+I tried to use github pages to host it:
+https://frydac.github.io/work_hours/
+
 # eframe template
 
 [![dependency status](https://deps.rs/repo/github/emilk/eframe_template/status.svg)](https://deps.rs/repo/github/emilk/eframe_template)
