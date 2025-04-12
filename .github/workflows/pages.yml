@@ -39,6 +39,31 @@ jobs:
         run: ./trunk build --release --public-url $public_url
         env:
           public_url: "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}"
+      - name: Add hash to js and wasm files for cache busting
+        run: |
+          cd dist
+          # Find generated .wasm and .js files
+          JS_FILE=$(find . -maxdepth 1 -name "*.js" | head -n 1)
+          WASM_FILE=$(find . -maxdepth 1 -name "*.wasm" | head -n 1)
+
+          # Extract base names
+          JS_BASE=$(basename "$JS_FILE")
+          WASM_BASE=$(basename "$WASM_FILE")
+
+          # Generate hash based on wasm content
+          HASH=$(sha256sum "$WASM_BASE" | cut -c1-8)
+
+          # New names
+          JS_HASHED="app.$HASH.js"
+          WASM_HASHED="app_bg.$HASH.wasm"
+
+          # Rename files
+          mv "$JS_FILE" "$JS_HASHED"
+          mv "$WASM_FILE" "$WASM_HASHED"
+
+          # Update the HTML to point to the new hashed file names
+          sed -i "s|$JS_BASE|$JS_HASHED|" index.html
+          sed -i "s|$WASM_BASE|$WASM_HASHED|" index.html
       - name: Deploy
         uses: JamesIves/github-pages-deploy-action@v4
         with:
