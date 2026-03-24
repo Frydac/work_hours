@@ -1,9 +1,8 @@
-pub mod single_digit;
-pub mod time_point;
 pub mod day;
+pub mod digitwise_number_editor;
 pub mod duration;
+pub mod time_point;
 
-pub use single_digit::SingleDigit;
-pub use time_point::TimePoint;
 pub use day::Day;
 pub use duration::Duration;
+pub use time_point::TimePoint;

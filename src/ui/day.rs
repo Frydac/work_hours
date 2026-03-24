@@ -1,4 +1,5 @@
 use crate::ui;
+use crate::ui::digitwise_number_editor::{request_digitwise_editor_focus, DigitwiseEditorFocusDirection, DigitwiseEditorFocusTrigger};
 use egui::{Align, Layout, RichText};
 
 #[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
@@ -42,6 +43,10 @@ impl Day {
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
+        for duration in &self.durations {
+            duration.reserve_row_id();
+        }
+
         let frame_width = 180.0;
         egui::Frame::new()
             // .stroke(egui::Stroke::new(1.0, egui::Color32::LIGHT_GRAY))
@@ -83,9 +88,9 @@ impl Day {
                                 let todo = self.total_target - self.duration();
                                 let sign = if todo.is_negative() { "-" } else { "" };
                                 ui.label(format!(
-                                        "{}{}",
-                                        sign,
-                                        ui::duration::format_duration(todo.abs(), ui::duration::DURATION_FORMAT)
+                                    "{}{}",
+                                    sign,
+                                    ui::duration::format_duration(todo.abs(), ui::duration::DURATION_FORMAT)
                                 ));
                                 // ui.label(format_duration(todo, DURATION_FORMAT));
                                 ui.end_row();
@@ -119,14 +124,49 @@ impl Day {
 
                     // the durations
                     {
+                        let row_ids: Vec<u64> = self.durations.iter().map(ui::Duration::row_id).collect();
                         let mut remove_ix = None;
+                        let mut defer_focus_to_row_start = None;
                         for (ix, duration) in &mut self.durations.iter_mut().enumerate() {
+                            if let Some(target_row_id) = defer_focus_to_row_start.take() {
+                                request_digitwise_editor_focus(ui.ctx(), egui::Id::new((target_row_id, "start")).with("hour"), 0);
+                            }
                             // if ix == 0 {
                             //     ui.separator();
                             // }
                             ui.horizontal(|ui| {
                                 // add duration
-                                duration.ui(ui);
+                                let duration_output = duration.ui(ui);
+
+                                if let Some(transfer) = duration_output.focus_transfer {
+                                    match (transfer.direction, transfer.trigger) {
+                                        (DigitwiseEditorFocusDirection::Next, DigitwiseEditorFocusTrigger::Tab) => {
+                                            if let Some(next_row_id) = row_ids.get(ix + 1) {
+                                                request_digitwise_editor_focus(
+                                                    ui.ctx(),
+                                                    egui::Id::new((*next_row_id, "start")).with("hour"),
+                                                    0,
+                                                );
+                                            }
+                                        }
+                                        (DigitwiseEditorFocusDirection::Next, DigitwiseEditorFocusTrigger::TypedCompletion) => {
+                                            if let Some(next_row_id) = row_ids.get(ix + 1) {
+                                                defer_focus_to_row_start = Some(*next_row_id);
+                                            }
+                                        }
+                                        (DigitwiseEditorFocusDirection::Previous, DigitwiseEditorFocusTrigger::Tab) => {
+                                            if ix > 0 {
+                                                let previous_row_id = row_ids[ix - 1];
+                                                request_digitwise_editor_focus(
+                                                    ui.ctx(),
+                                                    egui::Id::new((previous_row_id, "end")).with("minute"),
+                                                    1,
+                                                );
+                                            }
+                                        }
+                                        (DigitwiseEditorFocusDirection::Previous, DigitwiseEditorFocusTrigger::TypedCompletion) => {}
+                                    }
+                                }
                                 // duration.ui_text_edit(ui);
                                 // duration.ui2(ui);
                                 // add remove button
@@ -148,7 +188,6 @@ impl Day {
                     }
 
                     // ui.separator();
-
                 });
 
                 // Add the margin around the label

@@ -1,50 +1,92 @@
-use crate::ui::SingleDigit;
+use crate::ui::digitwise_number_editor::{
+    request_digitwise_editor_focus, DigitwiseEditorFocusDirection, DigitwiseEditorFocusTransfer, DigitwiseEditorFocusTrigger,
+    DigitwiseNumberEditor,
+};
 
 #[derive(Debug, Clone, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct TimePoint {
     pub time: time::OffsetDateTime,
-    h10_ui: SingleDigit, // hours tens
-    h01_ui: SingleDigit, // hours ones
-    m10_ui: SingleDigit, // minutes tens
-    m01_ui: SingleDigit, // minutes ones
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TimePointOutput {
+    pub focus_transfer: Option<DigitwiseEditorFocusTransfer>,
 }
 
 impl TimePoint {
     pub fn now() -> Self {
         let now = time::OffsetDateTime::now_local().unwrap();
-        Self {
-            time: now,
-            h10_ui: SingleDigit::new(now.hour() / 10, "h10").range(0..=2),
-            h01_ui: SingleDigit::new(now.hour() % 10, "h01"),
-            m10_ui: SingleDigit::new(now.minute() / 10, "m10").range(0..=5),
-            m01_ui: SingleDigit::new(now.minute() % 10, "m01").surrender_focus(false),
-        }
+        Self { time: now }
     }
 
-    pub fn ui(&mut self, ui: &mut egui::Ui) {
+    pub fn ui(&mut self, ui: &mut egui::Ui, id_source: impl std::hash::Hash) -> TimePointOutput {
+        let id_source = egui::Id::new(id_source);
+        let mut hour = u64::from(self.time.hour());
+        let mut minute = u64::from(self.time.minute());
+        let mut focus_transfer = None;
+        let mut defer_focus_to_minute = false;
+
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
-            let h10_response = self.h10_ui.ui(ui);
-            let h01_response = self.h01_ui.ui(ui);
-            ui.label(":");
-            let m10_response = self.m10_ui.ui(ui);
-            let m01_response = self.m01_ui.ui(ui);
 
-            // Whenever a correct digit is entered, the SingleDigit loses focus, here we decide the
-            // order.
-            if h10_response.lost_focus() {
-                h01_response.request_focus();
+            let hour_output = DigitwiseNumberEditor::new(id_source.with("hour"), &mut hour)
+                .digits(2)
+                .digit_width(12.0)
+                .max(23)
+                .dim_leading_zeroes(false)
+                .show(ui);
+
+            if let Some(transfer) = hour_output.focus_transfer {
+                match (transfer.direction, transfer.trigger) {
+                    (DigitwiseEditorFocusDirection::Next, DigitwiseEditorFocusTrigger::Tab) => {
+                        request_digitwise_editor_focus(ui.ctx(), id_source.with("minute"), 0);
+                    }
+                    (DigitwiseEditorFocusDirection::Next, DigitwiseEditorFocusTrigger::TypedCompletion) => {
+                        defer_focus_to_minute = true;
+                    }
+                    (DigitwiseEditorFocusDirection::Previous, _) => {
+                        focus_transfer = Some(transfer);
+                    }
+                }
             }
-            if h01_response.lost_focus() {
-                m10_response.request_focus();
+
+            ui.label(":");
+
+            let minute_output = DigitwiseNumberEditor::new(id_source.with("minute"), &mut minute)
+                .digits(2)
+                .digit_width(12.0)
+                .max(59)
+                .dim_leading_zeroes(false)
+                .show(ui);
+
+            if let Some(transfer) = minute_output.focus_transfer {
+                match (transfer.direction, transfer.trigger) {
+                    (DigitwiseEditorFocusDirection::Previous, DigitwiseEditorFocusTrigger::Tab) => {
+                        request_digitwise_editor_focus(ui.ctx(), id_source.with("hour"), 1);
+                        hour_output.response.request_focus();
+                    }
+                    (DigitwiseEditorFocusDirection::Previous, DigitwiseEditorFocusTrigger::TypedCompletion) => {
+                        focus_transfer = Some(transfer);
+                    }
+                    (DigitwiseEditorFocusDirection::Next, _) => {
+                        focus_transfer = Some(transfer);
+                    }
+                }
             }
-            if m10_response.lost_focus() {
-                m01_response.request_focus();
+
+            if defer_focus_to_minute {
+                request_digitwise_editor_focus(ui.ctx(), id_source.with("minute"), 0);
             }
         });
 
-        let hour = self.h10_ui.value * 10 + self.h01_ui.value;
-        let minute = self.m10_ui.value * 10 + self.m01_ui.value;
-        self.time = self.time.replace_hour(hour).unwrap().replace_minute(minute).unwrap();
+        self.time = self.time.replace_hour(hour as u8).unwrap().replace_minute(minute as u8).unwrap();
+
+        TimePointOutput { focus_transfer }
+    }
+}
+
+impl Default for TimePoint {
+    fn default() -> Self {
+        Self::now()
     }
 }

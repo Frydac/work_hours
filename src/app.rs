@@ -1,8 +1,6 @@
 #![allow(dead_code)]
 
 use crate::ui;
-use egui::{Align, Layout, RichText};
-use time;
 use time::format_description::BorrowedFormatItem;
 use time::macros::format_description;
 
@@ -12,7 +10,6 @@ const FORMAT: &[BorrowedFormatItem<'_>] = format_description!("[hour]:[minute]")
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone, PartialEq)]
 pub struct State {
     days: Vec<ui::Day>,
-    test: ui::SingleDigit,
 }
 
 impl Default for State {
@@ -28,7 +25,6 @@ impl Default for State {
                     day
                 })
                 .collect(),
-            test: ui::SingleDigit::new(0, "test"),
         }
     }
 }
@@ -141,36 +137,36 @@ impl eframe::App for TemplateApp {
             //     // self.state.test.ui(ui);
             // });
 
-            ui.with_layout(Layout::top_down(Align::Center), |ui| {
-                // ui.heading(RichText::new("Work Hours Calculator").strong());
-                // ui.separator();
+            // ui.with_layout(Layout::top_down(Align::Center).with_main_wrap(true), |ui| {
+            // ui.heading(RichText::new("Work Hours Calculator").strong());
+            // ui.separator();
 
-                // ui.horizontal(|ui| {
-                //     ui.add_space(
-                //         ui.available_width() / 2.0
-                //             - ui.fonts(|f| {
-                //                 f.layout("Work Hours Calculator".to_string(), egui::FontId::proportional(20.0), egui::Color32::WHITE, 100.0)
-                //                     .size()
-                //                     .x
-                //                     / 2.0
-                //             }),
-                //     );
-                //     ui.heading(RichText::new("Work Hours Calculator").strong());
-                //     ui.add_space(ui.available_width() - 100.0); // Adjust for button size
-                //     if ui.button("Settings").clicked() {
-                //         // Handle button click
-                //     }
-                // });
-                // ui.separator();
-            });
+            // ui.horizontal(|ui| {
+            //     ui.add_space(
+            //         ui.available_width() / 2.0
+            //             - ui.fonts(|f| {
+            //                 f.layout("Work Hours Calculator".to_string(), egui::FontId::proportional(20.0), egui::Color32::WHITE, 100.0)
+            //                     .size()
+            //                     .x
+            //                     / 2.0
+            //             }),
+            //     );
+            //     ui.heading(RichText::new("Work Hours Calculator").strong());
+            //     ui.add_space(ui.available_width() - 100.0); // Adjust for button size
+            //     if ui.button("Settings").clicked() {
+            //         // Handle button click
+            //     }
+            // });
+            // ui.separator();
+            // });
 
             // if ui.add(egui::Button::new("Reset egui memory")).on_hover_text("Forget all").clicked() {
             //     // ui.ctx().memory_mut(|mem| *mem = Default::default());
             //     *self = TemplateApp::default();
             // }
 
-            // ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-            ui.horizontal(|ui| {
+            // ui.with_layout(Layout::left_to_right(Align::TOP).with_main_wrap(true), |ui| {
+            ui.horizontal_wrapped(|ui| {
                 for day in &mut self.state.days {
                     ui.separator();
                     ui.vertical(|ui| {

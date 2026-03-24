@@ -42,11 +42,6 @@ impl SingleDigit {
         self
     }
 
-    pub fn clamp_value(&mut self)
-    {
-        self.value = self.value.clamp(*self.range.start(), *self.range.end())
-    }
-
     pub fn ui(&mut self, ui: &mut egui::Ui) -> egui::Response {
         let mut val_str = self.value.to_string();
         let mut output = egui::TextEdit::singleline(&mut val_str).desired_width(6.0).show(ui);
@@ -62,8 +57,12 @@ impl SingleDigit {
             ui.ctx().input(|i| {
                 for event in &i.events {
                     match event {
-                        egui::Event::MouseWheel { unit: _, delta, modifiers: _ } => {
-                            println!("{}: {}: {}", self.name, "delta", delta);
+                        egui::Event::MouseWheel {
+                            unit: _,
+                            delta,
+                            modifiers: _,
+                        } => {
+                            println!("{}: delta: {}", self.name, delta);
                             // dbg!(unit);
                             // dbg!(delta);
                             // dbg!(modifiers);
@@ -76,7 +75,7 @@ impl SingleDigit {
                                 self.value = value as u8;
                                 // println!("{}: {}", "self.value", self.value);
                                 // println!("{}: {}", "self.value after clamp", self.value);
-                                self.delta -=  self.delta.signum();
+                                self.delta -= self.delta.signum();
                             }
                         }
                         // egui::Event::MouseWheel(v) => {
@@ -85,8 +84,7 @@ impl SingleDigit {
                         egui::Event::Zoom(v) => {
                             println!("{:?}: {:?}", "v", v);
                         }
-                        _ => {
-                        },
+                        _ => {}
                     }
                     // if let egui::Event::Scroll(v) = event {
                     //     println!("{:?}: {:?}", "v", v);
