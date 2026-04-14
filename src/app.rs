@@ -311,10 +311,6 @@ impl eframe::App for TemplateApp {
                 .min_col_width(80.0)
                 // .max_col_width(200.0)
                 .show(ui, |ui| {
-                    ui.label("Week:");
-                    ui.label(self.current_week_number().to_string());
-                    ui.end_row();
-
                     let duration_days = self.duration();
                     let target_days = self.total_target();
                     ui.label("Week Target:");
