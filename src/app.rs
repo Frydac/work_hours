@@ -154,6 +154,11 @@ impl TemplateApp {
 }
 
 impl TemplateApp {
+    fn reset_state(&mut self) {
+        self.state = State::default();
+        self.undoer = Default::default();
+    }
+
     pub fn duration(&self) -> time::Duration {
         self.state.days.iter().fold(time::Duration::ZERO, |sum, day| sum + day.duration())
     }
@@ -189,7 +194,7 @@ impl eframe::App for TemplateApp {
                 if !is_web {
                     ui.menu_button("File", |ui| {
                         if ui.button("Reset state").clicked() {
-                            *self = TemplateApp::default();
+                            self.reset_state();
                         }
                         ui.separator();
                         if ui.button("Quit").clicked() {
@@ -208,6 +213,14 @@ impl eframe::App for TemplateApp {
 
             egui::Frame::new().inner_margin(egui::Margin::same(5)).show(ui, |ui| {
                 ui.horizontal(|ui| {
+                    if ui
+                        .button("Reset state")
+                        .on_hover_text("Remove all stored data and start fresh. Can't be undone")
+                        .clicked()
+                    {
+                        self.reset_state();
+                    }
+                    ui.separator();
                     let undo = ui.add_enabled(can_undo, egui::Button::new("⟲ Undo")).clicked();
                     let redo = ui.add_enabled(can_redo, egui::Button::new("⟳ Redo")).clicked();
 
