@@ -1,5 +1,6 @@
 use crate::ui;
 use crate::ui::digitwise_number_editor::{request_digitwise_editor_focus, DigitwiseEditorFocusDirection, DigitwiseEditorFocusTrigger};
+use chrono::NaiveDate;
 use egui::{Align, Layout, RichText};
 
 #[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
@@ -8,16 +9,20 @@ pub struct Day {
     pub name: String,
     total_target: time::Duration,
     pub enabled: bool,
+    pub date: NaiveDate,
 }
 
 impl Day {
     pub fn new(name: String) -> Self {
+        // let day_target = time::Duration::hours(7) + time::Duration::minutes(36);
         Day {
             name,
             enabled: true,
             ..Default::default()
         }
     }
+
+    #[allow(dead_code)]
     pub fn with_target(mut self, target: time::Duration) -> Self {
         self.total_target = target;
         self
@@ -59,6 +64,8 @@ impl Day {
                     ui.horizontal(|ui| {
                         ui.checkbox(&mut self.enabled, "");
                         ui.label(RichText::new(&self.name).size(16.0));
+                        ui.label(RichText::new(self.date.to_string()).size(12.0));
+                        // println!("self.date: {}", self.date);
                     });
                     // ui.with_layout(Layout::left_to_right(Align::RIGHT), |ui| {
                     // });
@@ -194,4 +201,29 @@ impl Day {
                 // ui.add(margin, egui::Label::new("Hello, egui!"));
             });
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::{DateTime, Datelike, NaiveDate, Utc, Weekday};
+
+    #[test]
+    fn test_date() {
+        let now_utc: DateTime<Utc> = Utc::now();
+        println!("now_utc: {}", now_utc);
+        let today = now_utc.date_naive();
+        println!("today: {}", today);
+
+        let week_nr = today.iso_week().week();
+        println!("week_nr: {}", week_nr);
+
+        let week_day = today.weekday();
+        println!("week_day: {}", week_day);
+
+        let my_year = 2026;
+        let my_week_nr = 10;
+        let my_week_nr_date = NaiveDate::from_isoywd_opt(my_year, my_week_nr, Weekday::Mon).unwrap();
+        println!("my_week_nr_date: {}", my_week_nr_date);
+    }
+
 }

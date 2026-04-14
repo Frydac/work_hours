@@ -1,5 +1,10 @@
+#[cfg(not(target_arch = "wasm32"))]
 use work_hours_calculator::supabase::SupabaseClient;
 
+#[cfg(target_arch = "wasm32")]
+fn main() {}
+
+#[cfg(not(target_arch = "wasm32"))]
 #[tokio::main]
 async fn main() {
     println!("🚀 Fetching work days from Supabase...");

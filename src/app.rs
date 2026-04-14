@@ -1,6 +1,10 @@
 #![allow(dead_code)]
 
+use std::collections::HashMap;
+
 use crate::ui;
+use anyhow::Result;
+use chrono::{Datelike, NaiveDate, Weekday};
 use time::format_description::BorrowedFormatItem;
 use time::macros::format_description;
 
@@ -10,22 +14,84 @@ const FORMAT: &[BorrowedFormatItem<'_>] = format_description!("[hour]:[minute]")
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone, PartialEq)]
 pub struct State {
     days: Vec<ui::Day>,
+
+    all_days: HashMap<NaiveDate, ui::Day>,
+
+    cur_week_nr: u32,
+    cur_year: i32,
+}
+
+fn current_work_week_monday() -> NaiveDate {
+    let today = chrono::Local::now().date_naive();
+    let week_nr = today.iso_week().week();
+    let year = today.year();
+    NaiveDate::from_isoywd_opt(year, week_nr, Weekday::Mon).unwrap()
+}
+
+fn last_iso_week_of_year(year: i32) -> u32 {
+    NaiveDate::from_ymd_opt(year, 12, 28) // always in last ISO week
+        .unwrap()
+        .iso_week()
+        .week()
+}
+
+impl State {
+    fn populate_missing_dates(&mut self) {
+        let monday = current_work_week_monday();
+
+        for (day_ix, day) in self.days.iter_mut().enumerate() {
+            // Older persisted state did not contain a date field, so serde filled
+            // it with the type default. Rehydrate those entries from the work-week index.
+            if day.date.year() < 2000 {
+                day.date = monday + chrono::Duration::days(day_ix as i64);
+            }
+        }
+    }
+
+    fn set_current_week(&mut self, week_nr: u32, year: i32) -> Result<()> {
+        self.save_current_week();
+        self.cur_week_nr = week_nr;
+        self.cur_year = year;
+        let cur_monday = NaiveDate::from_isoywd_opt(year, week_nr, Weekday::Mon).ok_or(anyhow::anyhow!("invalid date"))?;
+        self.days = (0..5)
+            .map(|day_ix| {
+                let date = cur_monday + chrono::Duration::days(day_ix);
+                let mut day = ui::Day::new(date.format("%A").to_string());
+                day.date = date;
+                self.all_days.entry(date).or_insert(day).clone()
+            })
+            .collect();
+        Ok(())
+    }
+
+    fn save_current_week(&mut self) {
+        for day in self.days.iter_mut() {
+            self.all_days.insert(day.date, day.clone());
+        }
+    }
+
+    fn shift_weeks(&mut self, nr_weeks: i32) {
+        let monday = NaiveDate::from_isoywd_opt(self.cur_year, self.cur_week_nr, Weekday::Mon).unwrap();
+        // This should skip years properly
+        let next = monday + chrono::Duration::weeks(nr_weeks.into());
+        let week = next.iso_week();
+        let _ = self.set_current_week(week.week(), week.year());
+    }
 }
 
 impl Default for State {
     fn default() -> Self {
-        let day_target = time::Duration::hours(7) + time::Duration::minutes(36);
-
-        Self {
-            days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
-                .iter()
-                .map(|&name| {
-                    let day = ui::Day::new(name.to_owned()).with_target(day_target);
-                    dbg!(&day);
-                    day
-                })
-                .collect(),
-        }
+        let mut res = State {
+            days: vec![],
+            all_days: HashMap::new(),
+            cur_week_nr: 0,
+            cur_year: 0,
+        };
+        let today = chrono::Local::now().date_naive();
+        let cur_week_nr = today.iso_week().week();
+        let cur_year = today.year();
+        let _ = res.set_current_week(cur_week_nr, cur_year);
+        res
     }
 }
 
@@ -47,7 +113,9 @@ impl TemplateApp {
         // Load previous app state (if any).
         // Note that you must enable the `persistence` feature for this to work.
         if let Some(storage) = cc.storage {
-            return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
+            let app: Self = eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
+            // app.state.populate_missing_dates();
+            return app;
         }
 
         Default::default()
@@ -61,6 +129,10 @@ impl TemplateApp {
 
     pub fn total_target(&self) -> time::Duration {
         self.state.days.iter().fold(time::Duration::ZERO, |sum, day| sum + day.target())
+    }
+
+    pub fn current_week_number(&self) -> u32 {
+        chrono::Local::now().date_naive().iso_week().week()
     }
 
     // pub fn
@@ -117,6 +189,13 @@ impl eframe::App for TemplateApp {
                         if let Some(redo_state) = self.undoer.redo(&self.state) {
                             self.state = redo_state.clone();
                         }
+                    }
+
+                    if ui.button("<").clicked() {
+                        self.state.shift_weeks(-1);
+                    }
+                    if ui.button(">").clicked() {
+                        self.state.shift_weeks(1);
                     }
                 });
             });
@@ -184,6 +263,10 @@ impl eframe::App for TemplateApp {
                 .min_col_width(80.0)
                 // .max_col_width(200.0)
                 .show(ui, |ui| {
+                    ui.label("Week:");
+                    ui.label(self.current_week_number().to_string());
+                    ui.end_row();
+
                     let duration_days = self.duration();
                     let target_days = self.total_target();
                     ui.label("Week Target:");
