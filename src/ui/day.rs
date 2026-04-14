@@ -13,11 +13,15 @@ pub struct Day {
 }
 
 impl Day {
+    pub fn default_target() -> time::Duration {
+        time::Duration::hours(7) + time::Duration::minutes(36)
+    }
+
     pub fn new(name: String) -> Self {
-        // let day_target = time::Duration::hours(7) + time::Duration::minutes(36);
         Day {
             name,
             enabled: true,
+            total_target: Self::default_target(),
             ..Default::default()
         }
     }
@@ -225,5 +229,4 @@ mod tests {
         let my_week_nr_date = NaiveDate::from_isoywd_opt(my_year, my_week_nr, Weekday::Mon).unwrap();
         println!("my_week_nr_date: {}", my_week_nr_date);
     }
-
 }

@@ -28,6 +28,12 @@ fn current_work_week_monday() -> NaiveDate {
     NaiveDate::from_isoywd_opt(year, week_nr, Weekday::Mon).unwrap()
 }
 
+fn current_iso_week_and_year() -> (u32, i32) {
+    let today = chrono::Local::now().date_naive();
+    let iso_week = today.iso_week();
+    (iso_week.week(), iso_week.year())
+}
+
 fn last_iso_week_of_year(year: i32) -> u32 {
     NaiveDate::from_ymd_opt(year, 12, 28) // always in last ISO week
         .unwrap()
@@ -70,12 +76,39 @@ impl State {
         }
     }
 
+    fn normalize_iso_year_week(mut year: i32, mut week_nr: i32) -> (i32, u32) {
+        loop {
+            let max_week = last_iso_week_of_year(year) as i32;
+            if week_nr < 1 {
+                year -= 1;
+                week_nr += last_iso_week_of_year(year) as i32;
+                continue;
+            }
+            if week_nr > max_week {
+                week_nr -= max_week;
+                year += 1;
+                continue;
+            }
+            return (year, week_nr as u32);
+        }
+    }
+
+    fn set_current_week_normalized(&mut self, year: i32, week_nr: i32) {
+        let (year, week_nr) = Self::normalize_iso_year_week(year, week_nr);
+        let _ = self.set_current_week(week_nr, year);
+    }
+
     fn shift_weeks(&mut self, nr_weeks: i32) {
         let monday = NaiveDate::from_isoywd_opt(self.cur_year, self.cur_week_nr, Weekday::Mon).unwrap();
         // This should skip years properly
         let next = monday + chrono::Duration::weeks(nr_weeks.into());
         let week = next.iso_week();
         let _ = self.set_current_week(week.week(), week.year());
+    }
+
+    fn jump_to_current_week(&mut self) {
+        let (week_nr, year) = current_iso_week_and_year();
+        let _ = self.set_current_week(week_nr, year);
     }
 }
 
@@ -87,9 +120,7 @@ impl Default for State {
             cur_week_nr: 0,
             cur_year: 0,
         };
-        let today = chrono::Local::now().date_naive();
-        let cur_week_nr = today.iso_week().week();
-        let cur_year = today.year();
+        let (cur_week_nr, cur_year) = current_iso_week_and_year();
         let _ = res.set_current_week(cur_week_nr, cur_year);
         res
     }
@@ -113,8 +144,8 @@ impl TemplateApp {
         // Load previous app state (if any).
         // Note that you must enable the `persistence` feature for this to work.
         if let Some(storage) = cc.storage {
-            let app: Self = eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
-            // app.state.populate_missing_dates();
+            let mut app: Self = eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
+            app.state.populate_missing_dates();
             return app;
         }
 
@@ -191,11 +222,28 @@ impl eframe::App for TemplateApp {
                         }
                     }
 
+                    ui.separator();
+
+                    let mut year = self.state.cur_year;
+                    ui.label("Year:");
+                    if ui.add(egui::DragValue::new(&mut year).speed(1)).changed() {
+                        self.state.set_current_week_normalized(year, self.state.cur_week_nr as i32);
+                    }
+
+                    let mut week_nr = self.state.cur_week_nr as i32;
+                    ui.label("Week:");
+                    if ui.add(egui::DragValue::new(&mut week_nr).speed(1).range(1..=999)).changed() {
+                        self.state.set_current_week_normalized(self.state.cur_year, week_nr);
+                    }
+
                     if ui.button("<").clicked() {
                         self.state.shift_weeks(-1);
                     }
                     if ui.button(">").clicked() {
                         self.state.shift_weeks(1);
+                    }
+                    if ui.button("This week").clicked() {
+                        self.state.jump_to_current_week();
                     }
                 });
             });
@@ -306,4 +354,39 @@ fn powered_by_egui_and_eframe(ui: &mut egui::Ui) {
         ui.hyperlink_to("eframe", "https://github.com/emilk/egui/tree/master/crates/eframe");
         ui.label(".");
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::State;
+
+    #[test]
+    fn default_state_has_week_target() {
+        let state = State::default();
+        let total_target = state.days.iter().fold(time::Duration::ZERO, |sum, day| sum + day.target());
+        assert_eq!(total_target, time::Duration::hours(38));
+    }
+
+    #[test]
+    fn normalize_iso_year_week_keeps_valid_week() {
+        assert_eq!(State::normalize_iso_year_week(2026, 10), (2026, 10));
+    }
+
+    #[test]
+    fn normalize_iso_year_week_wraps_forward() {
+        let max_week = super::last_iso_week_of_year(2026) as i32;
+        assert_eq!(State::normalize_iso_year_week(2026, max_week + 1), (2027, 1));
+    }
+
+    #[test]
+    fn normalize_iso_year_week_wraps_backward() {
+        let previous_year = 2025;
+        let last_week = super::last_iso_week_of_year(previous_year);
+        assert_eq!(State::normalize_iso_year_week(2026, 0), (previous_year, last_week));
+    }
+
+    #[test]
+    fn normalize_iso_year_week_carries_forward_when_year_has_fewer_weeks() {
+        assert_eq!(State::normalize_iso_year_week(2025, 53), (2026, 1));
+    }
 }
