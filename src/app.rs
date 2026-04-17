@@ -177,6 +177,7 @@ impl TemplateApp {
 impl eframe::App for TemplateApp {
     /// Called by the frame work to save state before shutdown.
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        self.state.save_current_week();
         eframe::set_value(storage, eframe::APP_KEY, self);
     }
 
