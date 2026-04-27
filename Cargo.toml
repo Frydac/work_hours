@@ -21,6 +21,7 @@ eframe = { version = "0.31", default-features = false, features = [
     "x11"
 ] }
 log = "0.4"
+tracing = "0.1"
 
 # You only need serde if you want app persistence:
 serde = { version = "1", features = ["derive"] }
@@ -35,11 +36,12 @@ anyhow = "1.0.102"
 
 # native:
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-env_logger = "0.11"
 tokio = { version = "1", features = ["full"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
 # web:
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+tracing-wasm = "0.2"
 wasm-bindgen-futures = "0.4"
 web-sys = "0.3.70"           # to access the DOM (to hide the loading text)
 

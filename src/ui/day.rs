@@ -3,6 +3,9 @@ use crate::ui::digitwise_number_editor::{request_digitwise_editor_focus, Digitwi
 use chrono::NaiveDate;
 use egui::{Align, Layout, RichText};
 
+// A single visible work day in the UI: target, enabled flag, date, and an
+// ordered list of time ranges for that day.
+
 #[derive(Debug, Clone, Default, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Day {
     pub durations: Vec<ui::Duration>,
@@ -13,10 +16,12 @@ pub struct Day {
 }
 
 impl Day {
+    /// Default daily target for newly created weekdays.
     pub fn default_target() -> time::Duration {
         time::Duration::hours(7) + time::Duration::minutes(36)
     }
 
+    /// Creates a new enabled day with the default target.
     pub fn new(name: String) -> Self {
         Day {
             name,
@@ -32,6 +37,18 @@ impl Day {
         self
     }
 
+    /// Returns the configured target even when the day is disabled.
+    ///
+    /// This is useful for persistence and editing, where we still want to keep
+    /// the stored target around even if the day should not count toward totals.
+    pub fn configured_target(&self) -> time::Duration {
+        self.total_target
+    }
+
+    /// Returns the effective target that should count toward totals.
+    ///
+    /// Disabled days contribute zero target so weekends or skipped days can stay
+    /// in the model without affecting week totals.
     pub fn target(&self) -> time::Duration {
         if !self.enabled {
             return time::Duration::ZERO;
@@ -39,6 +56,11 @@ impl Day {
         self.total_target
     }
 
+    pub fn set_target(&mut self, target: time::Duration) {
+        self.total_target = target;
+    }
+
+    /// Returns the sum of all durations that should count for this day.
     pub fn duration(&self) -> time::Duration {
         if !self.enabled {
             return time::Duration::ZERO;
@@ -150,6 +172,9 @@ impl Day {
                                 let duration_output = duration.ui(ui);
 
                                 if let Some(transfer) = duration_output.focus_transfer {
+                                    // Focus movement across duration rows is handled here so
+                                    // the duration editor itself only needs to understand
+                                    // movement within one row.
                                     match (transfer.direction, transfer.trigger) {
                                         (DigitwiseEditorFocusDirection::Next, DigitwiseEditorFocusTrigger::Tab) => {
                                             if let Some(next_row_id) = row_ids.get(ix + 1) {

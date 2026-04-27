@@ -1,3 +1,5 @@
+// Reusable UI widgets used by the app shell and the persisted state model.
+// These modules own editing behavior for days, durations, and time points.
 pub mod day;
 pub mod digitwise_number_editor;
 pub mod duration;

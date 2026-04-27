@@ -1,4 +1,8 @@
 #[cfg(not(target_arch = "wasm32"))]
+use chrono::NaiveDate;
+#[cfg(not(target_arch = "wasm32"))]
+use work_hours_calculator::config::AppConfig;
+#[cfg(not(target_arch = "wasm32"))]
 use work_hours_calculator::supabase::SupabaseClient;
 
 #[cfg(target_arch = "wasm32")]
@@ -7,39 +11,39 @@ fn main() {}
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::main]
 async fn main() {
-    println!("🚀 Fetching work days from Supabase...");
+    let config = AppConfig::load_public().expect("public Supabase config should be available");
+    let email = std::env::var("SUPABASE_EMAIL").expect("SUPABASE_EMAIL must be set");
+    let password = std::env::var("SUPABASE_PASSWORD").expect("SUPABASE_PASSWORD must be set");
 
-    // Your Supabase credentials
-    let supabase_url = "https://YOUR_PROJECT_ID.supabase.co".to_string();
-    let api_key = "YOUR_ANON_KEY".to_string();
-    let user_id = "YOUR_USER_ID"; // The UUID from auth.users
+    let client = SupabaseClient::new(config.supabase_url, config.supabase_anon_key);
+    let session = client
+        .sign_in_password(&email, &password)
+        .await
+        .expect("password sign-in should succeed");
 
-    let client = SupabaseClient::new(supabase_url, api_key);
+    println!("signed in as {:?}", session.user.email);
 
-    // Test 1: Fetch a specific day
-    match client.get_work_day(user_id, "2026-01-27").await {
-        Ok(days) => {
-            println!("✅ Success! Fetched {} day(s)", days.len());
-            for day in days {
-                println!("\n{:#?}", day);
-            }
-        }
-        Err(e) => {
-            println!("❌ Error: {}", e);
-        }
-    }
+    let start = NaiveDate::from_ymd_opt(2026, 1, 27).unwrap();
+    let end = NaiveDate::from_ymd_opt(2026, 2, 2).unwrap();
+    let days = client
+        .get_work_days_range(&session.access_token, start, end)
+        .await
+        .expect("range fetch should succeed");
 
-    // Test 2: Fetch a date range
-    println!("\n\n📅 Fetching week of Jan 27 - Feb 2...");
-    match client.get_work_days_range(user_id, "2026-01-27", "2026-02-02").await {
-        Ok(days) => {
-            println!("✅ Fetched {} day(s) in range", days.len());
-            for day in days {
-                println!("{}: {:?}", day.day_date, day.time_entries);
-            }
-        }
-        Err(e) => {
-            println!("❌ Error: {}", e);
+    println!("fetched {} day(s)", days.len());
+    for day in days {
+        println!(
+            "{} target={} enabled={} entries={}",
+            day.day.work_date,
+            day.day.target_minutes,
+            day.day.enabled,
+            day.work_entries.len()
+        );
+        for entry in day.work_entries {
+            println!(
+                "  [{}] {} -> {} {}",
+                entry.sort_index, entry.starts_at, entry.ends_at, entry.metadata
+            );
         }
     }
 }

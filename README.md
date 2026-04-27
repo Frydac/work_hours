@@ -9,6 +9,44 @@ A bunch of values are hard coded to fit my needs.
 I tried to use github pages to host it:
 https://frydac.github.io/work_hours/
 
+## Supabase config
+
+If you want to use Supabase, set these public config values before running the app:
+
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
+
+Example native run:
+
+```bash
+export SUPABASE_URL="https://your-project-id.supabase.co"
+export SUPABASE_ANON_KEY="your-public-anon-key"
+cargo run --release
+```
+
+Example web run:
+
+```bash
+export SUPABASE_URL="https://your-project-id.supabase.co"
+export SUPABASE_ANON_KEY="your-public-anon-key"
+trunk serve
+```
+
+The anon key is public client config. Do not put the Supabase `service_role` key in this app.
+
+## Supabase migrations
+
+Database changes for this project live under [supabase/migrations](/home/emile/repos/rust/work_hours/supabase/migrations/).
+
+Apply all `.sql` files in filename order, not just one file. Right now that means:
+
+- [20260425103000_work_hours.sql](/home/emile/repos/rust/work_hours/supabase/migrations/20260425103000_work_hours.sql): base tables, triggers, indexes, and RLS
+- [20260426113000_save_work_day_rpc.sql](/home/emile/repos/rust/work_hours/supabase/migrations/20260426113000_save_work_day_rpc.sql): transactional save RPC used by the current app
+
+If save fails with an error mentioning `save_work_day_with_entries`, the second migration is missing or Supabase needs a schema reload.
+
+More setup notes are in [doc/supabase.md](/home/emile/repos/rust/work_hours/doc/supabase.md:1).
+
 # eframe template
 
 [![dependency status](https://deps.rs/repo/github/emilk/eframe_template/status.svg)](https://deps.rs/repo/github/emilk/eframe_template)
