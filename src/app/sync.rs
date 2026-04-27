@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use crate::config::AppConfig;
 use crate::supabase::{StoredSession, SupabaseClient, WorkDayDraft};
 use crate::ui;
-use anyhow::{Context, Result};
+use anyhow::{Context, Error, Result};
 use tracing::{debug, info, warn};
 
 use super::state::{State, WeekKey};
@@ -38,8 +38,8 @@ struct InFlightOps {
 
 #[derive(Debug)]
 pub(crate) enum AsyncResult {
-    Login(Result<StoredSession, String>),
-    RefreshSession(Result<StoredSession, String>),
+    Login(Result<StoredSession, Error>),
+    RefreshSession(Result<StoredSession, Error>),
     LoadWeek {
         week: WeekKey,
         result: Result<Vec<WorkDayDraft>, String>,
@@ -199,8 +199,7 @@ impl SyncState {
                 client
                     .sign_in_password(&email, &password)
                     .await
-                    .map(StoredSession::from)
-                    .map_err(|err| err.to_string()),
+                    .map(StoredSession::from),
             )
         });
     }
@@ -232,8 +231,7 @@ impl SyncState {
                 client
                     .refresh_session(&refresh_token)
                     .await
-                    .map(StoredSession::from)
-                    .map_err(|err| err.to_string()),
+                    .map(StoredSession::from),
             )
         });
     }
@@ -417,7 +415,7 @@ impl SyncState {
                         }
                         Err(err) => {
                             warn!(target = "auth", error = %err, "login failed");
-                            ui_state.set_error_message(format!("Login failed: {err}"));
+                            ui_state.set_error_message(format!("Login failed: {}", describe_auth_error(&err)));
                             ui_state.set_status_message("Login failed.".to_string());
                         }
                     }
@@ -444,7 +442,10 @@ impl SyncState {
                             warn!(target = "auth", error = %err, "session refresh failed");
                             self.stored_session = None;
                             self.synced_week = None;
-                            ui_state.set_error_message(format!("Session refresh failed: {err}"));
+                            ui_state.set_error_message(format!(
+                                "Session refresh failed: {}",
+                                describe_auth_error(&err)
+                            ));
                             ui_state.set_status_message("Please log in again.".to_string());
                         }
                     }
@@ -566,6 +567,17 @@ fn default_day_for_date(date: chrono::NaiveDate) -> ui::Day {
 
 fn supabase_client(config: &AppConfig) -> SupabaseClient {
     SupabaseClient::new(config.supabase_url.clone(), config.supabase_anon_key.clone())
+}
+
+fn describe_auth_error(err: &Error) -> String {
+    let message = err.to_string();
+    if message.contains("failed before response") {
+        return format!("request failed before response; {message}");
+    }
+    if message.contains("Supabase request failed with status") {
+        return format!("Supabase rejected request; {message}");
+    }
+    message
 }
 
 async fn save_week_drafts(client: &SupabaseClient, access_token: &str, drafts: Vec<WorkDayDraft>) -> Result<Vec<WorkDayDraft>> {

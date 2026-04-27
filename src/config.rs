@@ -60,6 +60,17 @@ impl AppConfig {
             })
         }
     }
+
+    /// Returns a redacted Supabase host marker that is safe to show in logs.
+    pub fn supabase_host_marker(&self) -> &str {
+        self.supabase_url
+            .split("//")
+            .nth(1)
+            .unwrap_or(&self.supabase_url)
+            .split('/')
+            .next()
+            .unwrap_or(&self.supabase_url)
+    }
 }
 
 #[cfg(test)]

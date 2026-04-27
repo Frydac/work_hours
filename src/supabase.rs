@@ -3,6 +3,8 @@ use anyhow::{anyhow, Context, Result};
 use chrono::{DateTime, FixedOffset, NaiveDate, TimeZone, Utc};
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
+#[cfg(target_arch = "wasm32")]
+use web_sys::wasm_bindgen::JsValue;
 use tracing::{debug, info, instrument, warn};
 
 // Supabase transport and conversion layer. This file owns REST DTOs, session
@@ -135,16 +137,20 @@ impl SupabaseClient {
     #[instrument(name = "supabase_sign_in_password", skip_all, fields(email = %email))]
     pub async fn sign_in_password(&self, email: &str, password: &str) -> Result<AuthSession> {
         let url = format!("{}/auth/v1/token?grant_type=password", self.url);
-        info!(target = "supabase", "calling Supabase password sign-in");
+        info!(target = "supabase", auth_url = %url, "calling Supabase password sign-in");
         let response = self
             .http
-            .post(url)
+            .post(url.clone())
             .header("apikey", &self.api_key)
             .header(CONTENT_TYPE, JSON_CONTENT_TYPE)
             .json(&PasswordSignInRequest { email, password })
             .send()
             .await
-            .context("failed to call Supabase password sign-in")?;
+            .map_err(|err| {
+                Self::log_transport_error("password sign-in", &url, &err);
+                err
+            })
+            .with_context(|| Self::transport_error_context("password sign-in", &url))?;
 
         Self::decode_json_response("password sign-in", response).await
     }
@@ -152,16 +158,20 @@ impl SupabaseClient {
     #[instrument(name = "supabase_refresh_session", skip_all)]
     pub async fn refresh_session(&self, refresh_token: &str) -> Result<AuthSession> {
         let url = format!("{}/auth/v1/token?grant_type=refresh_token", self.url);
-        info!(target = "supabase", "calling Supabase session refresh");
+        info!(target = "supabase", refresh_url = %url, "calling Supabase session refresh");
         let response = self
             .http
-            .post(url)
+            .post(url.clone())
             .header("apikey", &self.api_key)
             .header(CONTENT_TYPE, JSON_CONTENT_TYPE)
             .json(&serde_json::json!({ "refresh_token": refresh_token }))
             .send()
             .await
-            .context("failed to call Supabase session refresh")?;
+            .map_err(|err| {
+                Self::log_transport_error("session refresh", &url, &err);
+                err
+            })
+            .with_context(|| Self::transport_error_context("session refresh", &url))?;
 
         Self::decode_json_response("session refresh", response).await
     }
@@ -291,6 +301,32 @@ impl SupabaseClient {
             purpose,
             body
         ))
+    }
+
+    fn transport_error_context(purpose: &'static str, url: &str) -> String {
+        format!(
+            "Supabase {} request failed before response from {}",
+            purpose,
+            Self::loggable_url(url)
+        )
+    }
+
+    fn loggable_url(url: &str) -> String {
+        url.split('?').next().unwrap_or(url).to_string()
+    }
+
+    fn log_transport_error(purpose: &'static str, url: &str, err: &reqwest::Error) {
+        #[cfg(target_arch = "wasm32")]
+        {
+            let message = format!(
+                "Supabase {} request failed before response from {}: {}",
+                purpose,
+                Self::loggable_url(url),
+                err
+            );
+            web_sys::console::error_1(&JsValue::from_str(&message));
+        }
+        warn!(target = "supabase", purpose, error = %err, request_url = %Self::loggable_url(url), "Supabase transport request failed");
     }
 }
 

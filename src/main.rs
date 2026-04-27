@@ -13,8 +13,17 @@ fn main() -> eframe::Result {
 
     init_tracing();
     info!(target = "startup", platform = "native", "starting app");
-    if let Err(err) = AppConfig::load_public() {
-        warn!(target = "startup", error = %err, "Supabase public config not available yet");
+    match AppConfig::load_public() {
+        Ok(config) => {
+            info!(
+                target = "startup",
+                supabase_host = config.supabase_host_marker(),
+                "loaded Supabase public config"
+            );
+        }
+        Err(err) => {
+            warn!(target = "startup", error = %err, "Supabase public config not available yet");
+        }
     }
 
     let native_options = eframe::NativeOptions {
@@ -44,8 +53,17 @@ fn main() {
     init_tracing();
     info!(target = "startup", platform = "wasm", "starting app");
 
-    if let Err(err) = AppConfig::load_public() {
-        warn!(target = "startup", error = %err, "Supabase public config not available yet");
+    match AppConfig::load_public() {
+        Ok(config) => {
+            info!(
+                target = "startup",
+                supabase_host = config.supabase_host_marker(),
+                "loaded Supabase public config"
+            );
+        }
+        Err(err) => {
+            warn!(target = "startup", error = %err, "Supabase public config not available yet");
+        }
     }
 
     let web_options = eframe::WebOptions::default();
