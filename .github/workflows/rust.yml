@@ -11,7 +11,7 @@ jobs:
     name: Check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           rustflags: ""
@@ -21,7 +21,7 @@ jobs:
     name: Check wasm32
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           rustflags: ""
@@ -31,7 +31,7 @@ jobs:
     name: Test Suite
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           rustflags: ""
@@ -42,7 +42,7 @@ jobs:
     name: Rustfmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           rustflags: ""
@@ -52,7 +52,7 @@ jobs:
     name: Clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           rustflags: ""
@@ -62,7 +62,7 @@ jobs:
     name: trunk
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           rustflags: ""
@@ -70,6 +70,9 @@ jobs:
         run: wget -qO- https://github.com/thedodd/trunk/releases/latest/download/trunk-x86_64-unknown-linux-gnu.tar.gz | tar -xzf-
       - name: Build
         run: ./trunk build
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
 
   build:
     runs-on: ${{ matrix.os }}
@@ -97,7 +100,7 @@ jobs:
     - name: Building ${{ matrix.TARGET }}
       run: echo "${{ matrix.TARGET }}"
 
-    - uses: actions/checkout@master
+    - uses: actions/checkout@v6
     - name: Install build dependencies - Rustup
       run: |
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain stable --profile default --target ${{ matrix.TARGET }} -y
@@ -122,7 +125,7 @@ jobs:
     - name: Rename
       run: cp target/${{ matrix.TARGET }}/release/eframe_template${{ matrix.EXTENSION }} eframe_template-${{ matrix.TARGET }}${{ matrix.EXTENSION }}
 
-    - uses: actions/upload-artifact@master
+    - uses: actions/upload-artifact@v7
       with:
         name: eframe_template-${{ matrix.TARGET }}${{ matrix.EXTENSION }}
         path: eframe_template-${{ matrix.TARGET }}${{ matrix.EXTENSION }}

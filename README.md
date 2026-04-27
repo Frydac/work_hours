@@ -34,6 +34,10 @@ trunk serve
 
 The anon key is public client config. Do not put the Supabase `service_role` key in this app.
 
+For GitHub Actions / GitHub Pages web builds, these same values must be present
+as repository secrets named `SUPABASE_URL` and `SUPABASE_ANON_KEY`, because the
+WASM build reads them at compile time.
+
 ## Supabase migrations
 
 Database changes for this project live under [supabase/migrations](/home/emile/repos/rust/work_hours/supabase/migrations/).

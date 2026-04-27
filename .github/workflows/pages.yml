@@ -18,7 +18,7 @@ jobs:
   build-github-pages:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4 # repo checkout
+      - uses: actions/checkout@v6 # repo checkout
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           rustflags: ""
@@ -34,6 +34,8 @@ jobs:
         run: ./trunk build --release --public-url $public_url
         env:
           public_url: "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}"
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
       - name: Add hash to js and wasm files for cache busting
         run: |
           cd dist
