@@ -115,11 +115,17 @@ jobs:
       if: contains(matrix.TARGET, 'linux')
       run: |
         cargo install cross --git https://github.com/cross-rs/cross --rev 1b8cf50d20180c1a394099e608141480f934b7f7
+      env:
+        RUSTFLAGS: ""
+        RUSTDOCFLAGS: ""
 
     - name: Install cross for mac and windows
       if: ${{ !contains(matrix.TARGET, 'linux') }}
       run: |
         cargo install cross
+      env:
+        RUSTFLAGS: ""
+        RUSTDOCFLAGS: ""
 
     - name: Build
       run: |
