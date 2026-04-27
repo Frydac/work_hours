@@ -441,7 +441,7 @@ fn local_duration_to_utc_range(day_date: NaiveDate, entry: &ui::Duration) -> Res
 fn local_clock_to_utc(day_date: NaiveDate, time_point: &ui::TimePoint, day_offset: i64) -> Result<DateTime<Utc>> {
     let local_date = day_date + chrono::Duration::days(day_offset);
     let naive = local_date
-        .and_hms_opt(u32::from(time_point.hour()) as u32, u32::from(time_point.minute()) as u32, 0)
+        .and_hms_opt(u32::from(time_point.hour()), u32::from(time_point.minute()), 0)
         .ok_or_else(|| anyhow!("invalid local date/time for work entry"))?;
     let offset = current_fixed_offset()?;
     let local = offset

@@ -11,7 +11,7 @@ mod ui_state;
 
 use crate::config::AppConfig;
 use state::State;
-use sync::{AsyncResult, SyncState};
+use sync::{AsyncResult, ProcessAsyncContext, SyncState};
 use tasks::{new_async_results, take_async_results, AsyncResults};
 use tracing::{debug, info, warn};
 use ui_state::AppUiState;
@@ -81,12 +81,14 @@ impl TemplateApp {
         }
         self.sync.process_async_results(
             results,
-            &mut self.state,
-            &mut self.undoer,
-            &mut self.ui_state,
-            self.config.as_ref(),
-            &self.async_results,
-            ctx,
+            ProcessAsyncContext {
+                state: &mut self.state,
+                undoer: &mut self.undoer,
+                ui_state: &mut self.ui_state,
+                config: self.config.as_ref(),
+                async_results: &self.async_results,
+                ctx,
+            },
         );
     }
 

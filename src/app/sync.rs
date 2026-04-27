@@ -14,6 +14,15 @@ use super::state::{State, WeekKey};
 use super::tasks::{spawn_async_task, AsyncResults};
 use super::ui_state::AppUiState;
 
+pub(crate) struct ProcessAsyncContext<'a> {
+    pub state: &'a mut State,
+    pub undoer: &'a mut egui::util::undoer::Undoer<State>,
+    pub ui_state: &'a mut AppUiState,
+    pub config: Option<&'a AppConfig>,
+    pub async_results: &'a AsyncResults<AsyncResult>,
+    pub ctx: &'a egui::Context,
+}
+
 #[derive(Debug, Clone)]
 struct WeekSyncSnapshot {
     week: WeekKey,
@@ -374,16 +383,15 @@ impl SyncState {
         self.current_week_drafts(state)
     }
 
-    pub(crate) fn process_async_results(
-        &mut self,
-        results: Vec<AsyncResult>,
-        state: &mut State,
-        undoer: &mut egui::util::undoer::Undoer<State>,
-        ui_state: &mut AppUiState,
-        config: Option<&AppConfig>,
-        async_results: &AsyncResults<AsyncResult>,
-        ctx: &egui::Context,
-    ) {
+    pub(crate) fn process_async_results(&mut self, results: Vec<AsyncResult>, runtime: ProcessAsyncContext<'_>) {
+        let ProcessAsyncContext {
+            state,
+            undoer,
+            ui_state,
+            config,
+            async_results,
+            ctx,
+        } = runtime;
         for result in results {
             match result {
                 AsyncResult::Login(result) => {
