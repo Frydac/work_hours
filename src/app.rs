@@ -76,9 +76,6 @@ impl TemplateApp {
 
     fn process_async_results(&mut self, ctx: &egui::Context) {
         let results = take_async_results(&self.async_results);
-        if !results.is_empty() {
-            debug!(target = "app", count = results.len(), "processing async results");
-        }
         self.sync.process_async_results(
             results,
             ProcessAsyncContext {
