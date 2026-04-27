@@ -195,12 +195,7 @@ impl SyncState {
         let results = async_results.clone();
         spawn_async_task(ctx, results, async move {
             let client = supabase_client(&config);
-            AsyncResult::Login(
-                client
-                    .sign_in_password(&email, &password)
-                    .await
-                    .map(StoredSession::from),
-            )
+            AsyncResult::Login(client.sign_in_password(&email, &password).await.map(StoredSession::from))
         });
     }
 
@@ -227,12 +222,7 @@ impl SyncState {
         let results = async_results.clone();
         spawn_async_task(ctx, results, async move {
             let client = supabase_client(&config);
-            AsyncResult::RefreshSession(
-                client
-                    .refresh_session(&refresh_token)
-                    .await
-                    .map(StoredSession::from),
-            )
+            AsyncResult::RefreshSession(client.refresh_session(&refresh_token).await.map(StoredSession::from))
         });
     }
 
@@ -442,10 +432,7 @@ impl SyncState {
                             warn!(target = "auth", error = %err, "session refresh failed");
                             self.stored_session = None;
                             self.synced_week = None;
-                            ui_state.set_error_message(format!(
-                                "Session refresh failed: {}",
-                                describe_auth_error(&err)
-                            ));
+                            ui_state.set_error_message(format!("Session refresh failed: {}", describe_auth_error(&err)));
                             ui_state.set_status_message("Please log in again.".to_string());
                         }
                     }

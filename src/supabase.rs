@@ -3,9 +3,9 @@ use anyhow::{anyhow, Context, Result};
 use chrono::{DateTime, FixedOffset, NaiveDate, TimeZone, Utc};
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
+use tracing::{debug, info, instrument, warn};
 #[cfg(target_arch = "wasm32")]
 use web_sys::wasm_bindgen::JsValue;
-use tracing::{debug, info, instrument, warn};
 
 // Supabase transport and conversion layer. This file owns REST DTOs, session
 // types, and helpers that translate between the app's UI model and the database
@@ -146,9 +146,8 @@ impl SupabaseClient {
             .json(&PasswordSignInRequest { email, password })
             .send()
             .await
-            .map_err(|err| {
-                Self::log_transport_error("password sign-in", &url, &err);
-                err
+            .inspect_err(|err| {
+                Self::log_transport_error("password sign-in", &url, err);
             })
             .with_context(|| Self::transport_error_context("password sign-in", &url))?;
 
@@ -167,9 +166,8 @@ impl SupabaseClient {
             .json(&serde_json::json!({ "refresh_token": refresh_token }))
             .send()
             .await
-            .map_err(|err| {
-                Self::log_transport_error("session refresh", &url, &err);
-                err
+            .inspect_err(|err| {
+                Self::log_transport_error("session refresh", &url, err);
             })
             .with_context(|| Self::transport_error_context("session refresh", &url))?;
 
