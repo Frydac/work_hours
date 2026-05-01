@@ -36,16 +36,31 @@ struct InFlightOps {
     save_week: Option<WeekKey>,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) enum PendingAuthedOp {
+    LoadWeek {
+        week: WeekKey,
+        start_date: chrono::NaiveDate,
+        end_date: chrono::NaiveDate,
+        refreshed_after_failure: bool,
+    },
+    SaveWeek {
+        week: WeekKey,
+        drafts: Vec<WorkDayDraft>,
+        refreshed_after_failure: bool,
+    },
+}
+
 #[derive(Debug)]
 pub(crate) enum AsyncResult {
     Login(Result<StoredSession, Error>),
     RefreshSession(Result<StoredSession, Error>),
     LoadWeek {
-        week: WeekKey,
+        op: PendingAuthedOp,
         result: Result<Vec<WorkDayDraft>, String>,
     },
     SaveWeek {
-        week: WeekKey,
+        op: PendingAuthedOp,
         result: Result<Vec<WorkDayDraft>, String>,
     },
 }
@@ -58,6 +73,8 @@ pub struct SyncState {
     synced_week: Option<WeekSyncSnapshot>,
     #[serde(skip)]
     in_flight: InFlightOps,
+    #[serde(skip)]
+    pending_authed_op: Option<PendingAuthedOp>,
 }
 
 impl SyncState {
@@ -89,6 +106,12 @@ impl SyncState {
             "initializing persisted session"
         );
         if session.is_expired_or_near_expiry(chrono::Utc::now().timestamp()) {
+            self.pending_authed_op = Some(PendingAuthedOp::LoadWeek {
+                week: state.current_week_key(),
+                start_date: state.current_week_range().0,
+                end_date: state.current_week_range().1,
+                refreshed_after_failure: false,
+            });
             self.start_refresh_session(ui_state, config, async_results, ctx, session.refresh_token);
         } else {
             // A still-valid saved session lets the app come back online without
@@ -251,30 +274,21 @@ impl SyncState {
         let Some(session) = self.stored_session.clone() else {
             return;
         };
-
         let week = state.current_week_key();
         let (start_date, end_date) = state.current_week_range();
-        info!(
-            target = "sync",
-            year = week.year,
-            week = week.week_nr,
-            %start_date,
-            %end_date,
-            "requesting visible week load"
-        );
-        ui_state.clear_error();
-        self.in_flight.load_week = Some(week);
-        ui_state.set_status_message(format!("Loading week {}...", week.week_nr));
-        let results = async_results.clone();
-        spawn_async_task(ctx, results, async move {
-            let client = supabase_client(&config);
-            let result = client
-                .get_work_days_range(&session.access_token, start_date, end_date)
-                .await
-                .map(|days| days.into_iter().map(WorkDayDraft::from).collect())
-                .map_err(|err| err.to_string());
-            AsyncResult::LoadWeek { week, result }
-        });
+        let op = PendingAuthedOp::LoadWeek {
+            week,
+            start_date,
+            end_date,
+            refreshed_after_failure: false,
+        };
+        if session.is_expired_or_near_expiry(chrono::Utc::now().timestamp()) {
+            self.pending_authed_op = Some(op);
+            self.start_refresh_session(ui_state, Some(&config), async_results, ctx, session.refresh_token);
+            return;
+        }
+
+        self.spawn_load_week(ui_state, async_results, ctx, config, session.access_token, op);
     }
 
     pub(crate) fn save_visible_week(
@@ -312,7 +326,73 @@ impl SyncState {
                 return;
             }
         };
+        let op = PendingAuthedOp::SaveWeek {
+            week,
+            drafts,
+            refreshed_after_failure: false,
+        };
+        if session.is_expired_or_near_expiry(chrono::Utc::now().timestamp()) {
+            self.pending_authed_op = Some(op);
+            self.start_refresh_session(ui_state, Some(&config), async_results, ctx, session.refresh_token);
+            return;
+        }
 
+        self.spawn_save_week(ui_state, async_results, ctx, config, session.access_token, op);
+    }
+
+    fn spawn_load_week(
+        &mut self,
+        ui_state: &mut AppUiState,
+        async_results: &AsyncResults<AsyncResult>,
+        ctx: egui::Context,
+        config: AppConfig,
+        access_token: String,
+        op: PendingAuthedOp,
+    ) {
+        let PendingAuthedOp::LoadWeek {
+            week,
+            start_date,
+            end_date,
+            ..
+        } = op.clone()
+        else {
+            return;
+        };
+        info!(
+            target = "sync",
+            year = week.year,
+            week = week.week_nr,
+            %start_date,
+            %end_date,
+            "requesting visible week load"
+        );
+        ui_state.clear_error();
+        self.in_flight.load_week = Some(week);
+        ui_state.set_status_message(format!("Loading week {}...", week.week_nr));
+        let results = async_results.clone();
+        spawn_async_task(ctx, results, async move {
+            let client = supabase_client(&config);
+            let result = client
+                .get_work_days_range(&access_token, start_date, end_date)
+                .await
+                .map(|days| days.into_iter().map(WorkDayDraft::from).collect())
+                .map_err(|err| err.to_string());
+            AsyncResult::LoadWeek { op, result }
+        });
+    }
+
+    fn spawn_save_week(
+        &mut self,
+        ui_state: &mut AppUiState,
+        async_results: &AsyncResults<AsyncResult>,
+        ctx: egui::Context,
+        config: AppConfig,
+        access_token: String,
+        op: PendingAuthedOp,
+    ) {
+        let PendingAuthedOp::SaveWeek { week, drafts, .. } = op.clone() else {
+            return;
+        };
         let total_entries: usize = drafts.iter().map(|draft| draft.work_entries.len()).sum();
         info!(
             target = "sync",
@@ -328,10 +408,10 @@ impl SyncState {
         let results = async_results.clone();
         spawn_async_task(ctx, results, async move {
             let client = supabase_client(&config);
-            let result = save_week_drafts(&client, &session.access_token, drafts)
+            let result = save_week_drafts(&client, &access_token, drafts)
                 .await
                 .map_err(|err| err.to_string());
-            AsyncResult::SaveWeek { week, result }
+            AsyncResult::SaveWeek { op, result }
         });
     }
 
@@ -426,18 +506,24 @@ impl SyncState {
                             self.stored_session = Some(session);
                             ui_state.set_status_message(format!("Logged in as {}", self.session_label()));
                             ui_state.clear_error();
-                            self.request_visible_week_load(state, ui_state, config, async_results, ctx.clone());
+                            if let Some(op) = self.pending_authed_op.take() {
+                                self.resume_pending_authed_op(ui_state, config, async_results, ctx.clone(), op);
+                            } else {
+                                self.request_visible_week_load(state, ui_state, config, async_results, ctx.clone());
+                            }
                         }
                         Err(err) => {
                             warn!(target = "auth", error = %err, "session refresh failed");
                             self.stored_session = None;
                             self.synced_week = None;
+                            self.pending_authed_op = None;
                             ui_state.set_error_message(format!("Session refresh failed: {}", describe_auth_error(&err)));
-                            ui_state.set_status_message("Please log in again.".to_string());
+                            ui_state.set_status_message("Session expired. Please log in again.".to_string());
                         }
                     }
                 }
-                AsyncResult::LoadWeek { week, result } => {
+                AsyncResult::LoadWeek { op, result } => {
+                    let week = op.week();
                     if self.in_flight.load_week == Some(week) {
                         self.in_flight.load_week = None;
                     }
@@ -477,13 +563,17 @@ impl SyncState {
                             }
                         },
                         Err(err) => {
+                            if self.retry_authed_op_after_failure(ui_state, config, async_results, ctx.clone(), &op, &err) {
+                                continue;
+                            }
                             warn!(target = "sync", error = %err, year = week.year, week = week.week_nr, "failed to load visible week");
                             ui_state.set_error_message(format!("Failed to load week: {err}"));
                             ui_state.set_status_message("Week load failed.".to_string());
                         }
                     }
                 }
-                AsyncResult::SaveWeek { week, result } => {
+                AsyncResult::SaveWeek { op, result } => {
+                    let week = op.week();
                     if self.in_flight.save_week == Some(week) {
                         self.in_flight.save_week = None;
                     }
@@ -525,6 +615,9 @@ impl SyncState {
                             ui_state.clear_error();
                         }
                         Err(err) => {
+                            if self.retry_authed_op_after_failure(ui_state, config, async_results, ctx.clone(), &op, &err) {
+                                continue;
+                            }
                             warn!(target = "sync", error = %err, year = week.year, week = week.week_nr, "failed to save visible week");
                             ui_state.set_error_message(format!("Failed to save week: {}", summarize_save_error(&err)));
                             ui_state.set_status_message("Week save failed.".to_string());
@@ -543,6 +636,92 @@ impl SyncState {
                 None
             }
         }
+    }
+
+    fn resume_pending_authed_op(
+        &mut self,
+        ui_state: &mut AppUiState,
+        config: Option<&AppConfig>,
+        async_results: &AsyncResults<AsyncResult>,
+        ctx: egui::Context,
+        op: PendingAuthedOp,
+    ) {
+        let Some(config) = self.require_config(ui_state, config, "Supabase config missing; authenticated operation is unavailable.") else {
+            return;
+        };
+        let Some(session) = self.stored_session.clone() else {
+            ui_state.set_error_message("Session expired. Please log in again.".to_string());
+            return;
+        };
+
+        match op {
+            PendingAuthedOp::LoadWeek { .. } => {
+                self.spawn_load_week(ui_state, async_results, ctx, config, session.access_token, op);
+            }
+            PendingAuthedOp::SaveWeek { .. } => {
+                self.spawn_save_week(ui_state, async_results, ctx, config, session.access_token, op);
+            }
+        }
+    }
+
+    fn retry_authed_op_after_failure(
+        &mut self,
+        ui_state: &mut AppUiState,
+        config: Option<&AppConfig>,
+        async_results: &AsyncResults<AsyncResult>,
+        ctx: egui::Context,
+        op: &PendingAuthedOp,
+        err: &str,
+    ) -> bool {
+        if !is_auth_error(err) || op.was_refreshed_after_failure() {
+            return false;
+        }
+
+        let Some(session) = self.stored_session.clone() else {
+            return false;
+        };
+        if session.refresh_token.is_empty() {
+            return false;
+        }
+
+        self.pending_authed_op = Some(op.clone().mark_refreshed_after_failure());
+        self.start_refresh_session(ui_state, config, async_results, ctx, session.refresh_token);
+        true
+    }
+}
+
+impl PendingAuthedOp {
+    fn week(&self) -> WeekKey {
+        match self {
+            Self::LoadWeek { week, .. } | Self::SaveWeek { week, .. } => *week,
+        }
+    }
+
+    fn was_refreshed_after_failure(&self) -> bool {
+        match self {
+            Self::LoadWeek {
+                refreshed_after_failure,
+                ..
+            }
+            | Self::SaveWeek {
+                refreshed_after_failure,
+                ..
+            } => *refreshed_after_failure,
+        }
+    }
+
+    fn mark_refreshed_after_failure(mut self) -> Self {
+        match &mut self {
+            Self::LoadWeek {
+                refreshed_after_failure,
+                ..
+            }
+            | Self::SaveWeek {
+                refreshed_after_failure,
+                ..
+            } => *refreshed_after_failure = true,
+        }
+        self
     }
 }
 
@@ -565,6 +744,16 @@ fn describe_auth_error(err: &Error) -> String {
         return format!("Supabase rejected request; {message}");
     }
     message
+}
+
+fn is_auth_error(error: &str) -> bool {
+    let error = error.to_ascii_lowercase();
+    error.contains("status 401")
+        || error.contains("status 403")
+        || error.contains("jwt")
+        || error.contains("token")
+        || error.contains("session")
+        || error.contains("not authenticated")
 }
 
 async fn save_week_drafts(client: &SupabaseClient, access_token: &str, drafts: Vec<WorkDayDraft>) -> Result<Vec<WorkDayDraft>> {
@@ -613,7 +802,7 @@ fn extract_failed_work_date(error: &str) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{AsyncResult, SyncState, WeekSyncSnapshot};
+    use super::{is_auth_error, AsyncResult, PendingAuthedOp, SyncState, WeekSyncSnapshot};
     use crate::app::state::{State, WeekKey};
     use crate::supabase::WorkDayDraft;
     use chrono::NaiveDate;
@@ -666,5 +855,25 @@ mod tests {
         });
 
         assert!(sync.is_week_dirty(&state));
+    }
+
+    #[test]
+    fn pending_authed_op_marks_refresh_retry() {
+        let op = PendingAuthedOp::LoadWeek {
+            week: WeekKey { year: 2026, week_nr: 18 },
+            start_date: NaiveDate::from_ymd_opt(2026, 4, 27).unwrap(),
+            end_date: NaiveDate::from_ymd_opt(2026, 5, 1).unwrap(),
+            refreshed_after_failure: false,
+        };
+
+        assert!(!op.was_refreshed_after_failure());
+        assert!(op.clone().mark_refreshed_after_failure().was_refreshed_after_failure());
+    }
+
+    #[test]
+    fn auth_error_detector_matches_expired_session_shapes() {
+        assert!(is_auth_error("Supabase request failed with status 401 during save work day RPC: jwt expired"));
+        assert!(is_auth_error("Supabase request failed with status 403 during get work day range: not authenticated"));
+        assert!(!is_auth_error("failed to save 2026-04-28: local date/time is ambiguous or invalid"));
     }
 }
