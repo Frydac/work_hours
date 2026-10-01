@@ -57,7 +57,13 @@ impl Duration {
         let mut focus_transfer = None;
         let mut defer_focus_to_end_hour = false;
 
-        let start_output = self.start.ui(ui, (self.row_id, "start"));
+        // Stack the time editors when a narrow card cannot fit the complete range.
+        let stacked = ui.available_width() < 180.0;
+        let start_output = if stacked {
+            ui.horizontal(|ui| self.start.ui(ui, (self.row_id, "start"))).inner
+        } else {
+            self.start.ui(ui, (self.row_id, "start"))
+        };
         if let Some(transfer) = start_output.focus_transfer {
             match (transfer.direction, transfer.trigger) {
                 (DigitwiseEditorFocusDirection::Next, DigitwiseEditorFocusTrigger::Tab) => {
@@ -74,8 +80,14 @@ impl Duration {
             }
         }
 
-        ui.label("->");
-        let end_output = self.end.ui(ui, (self.row_id, "end"));
+        if !stacked {
+            ui.label("->");
+        }
+        let end_output = if stacked {
+            ui.horizontal(|ui| self.end.ui(ui, (self.row_id, "end"))).inner
+        } else {
+            self.end.ui(ui, (self.row_id, "end"))
+        };
 
         if let Some(transfer) = end_output.focus_transfer {
             match (transfer.direction, transfer.trigger) {
