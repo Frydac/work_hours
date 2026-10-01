@@ -8,4 +8,5 @@ cargo fmt --all -- --check
 cargo clippy --quiet --workspace --all-targets --all-features --  -D warnings -W clippy::all
 cargo test --quiet --workspace --all-targets --all-features
 cargo test --quiet --workspace --doc
-trunk build
+# Trunk expects a boolean, while some environments set NO_COLOR=1.
+NO_COLOR=true trunk build

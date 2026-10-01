@@ -808,24 +808,26 @@ mod tests {
     #[test]
     fn dirty_state_is_false_when_snapshot_matches() {
         let state = State::default();
-        let mut sync = SyncState::default();
-        sync.stored_session = Some(crate::supabase::StoredSession {
-            access_token: "a".to_string(),
-            refresh_token: "r".to_string(),
-            expires_at: None,
-            user_id: "u".to_string(),
-            email: None,
-        });
         let drafts: Vec<WorkDayDraft> = state
             .days()
             .iter()
             .map(WorkDayDraft::from_ui_day)
             .collect::<Result<_, _>>()
             .unwrap();
-        sync.synced_week = Some(WeekSyncSnapshot {
-            week: state.current_week_key(),
-            drafts,
-        });
+        let sync = SyncState {
+            stored_session: Some(crate::supabase::StoredSession {
+                access_token: "a".to_string(),
+                refresh_token: "r".to_string(),
+                expires_at: None,
+                user_id: "u".to_string(),
+                email: None,
+            }),
+            synced_week: Some(WeekSyncSnapshot {
+                week: state.current_week_key(),
+                drafts,
+            }),
+            ..Default::default()
+        };
 
         assert!(!sync.is_week_dirty(&state));
         let _ = AsyncResult::Login(Ok(sync.stored_session.clone().unwrap()));
@@ -880,23 +882,25 @@ mod tests {
     #[test]
     fn dirty_state_is_true_when_snapshot_week_differs() {
         let state = State::default();
-        let mut sync = SyncState::default();
-        sync.stored_session = Some(crate::supabase::StoredSession {
-            access_token: "a".to_string(),
-            refresh_token: "r".to_string(),
-            expires_at: None,
-            user_id: "u".to_string(),
-            email: None,
-        });
-        sync.synced_week = Some(WeekSyncSnapshot {
-            week: WeekKey { year: 2020, week_nr: 1 },
-            drafts: vec![WorkDayDraft {
-                work_date: NaiveDate::from_ymd_opt(2020, 1, 1).unwrap(),
-                target_minutes: 1,
-                enabled: true,
-                work_entries: vec![],
-            }],
-        });
+        let sync = SyncState {
+            stored_session: Some(crate::supabase::StoredSession {
+                access_token: "a".to_string(),
+                refresh_token: "r".to_string(),
+                expires_at: None,
+                user_id: "u".to_string(),
+                email: None,
+            }),
+            synced_week: Some(WeekSyncSnapshot {
+                week: WeekKey { year: 2020, week_nr: 1 },
+                drafts: vec![WorkDayDraft {
+                    work_date: NaiveDate::from_ymd_opt(2020, 1, 1).unwrap(),
+                    target_minutes: 1,
+                    enabled: true,
+                    work_entries: vec![],
+                }],
+            }),
+            ..Default::default()
+        };
 
         assert!(sync.is_week_dirty(&state));
     }
