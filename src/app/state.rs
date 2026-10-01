@@ -150,6 +150,23 @@ impl State {
         &self.days
     }
 
+    /// Latest entry on or before this day. Visible days override cached copies,
+    /// including days whose entries were cleared since the last save.
+    pub(crate) fn previous_duration_note(&self, date: NaiveDate) -> &str {
+        self.days
+            .iter()
+            .chain(
+                self.all_days
+                    .values()
+                    .filter(|cached| !self.days.iter().any(|visible| visible.date == cached.date)),
+            )
+            .filter(|day| day.date <= date && !day.durations.is_empty())
+            .max_by_key(|day| day.date)
+            .and_then(|day| day.durations.last())
+            .map(|entry| entry.note())
+            .unwrap_or_default()
+    }
+
     pub(crate) fn cur_year(&self) -> i32 {
         self.cur_year
     }
@@ -181,6 +198,41 @@ mod tests {
     fn default_state_has_week_target() {
         let state = State::default();
         assert_eq!(state.total_target(), time::Duration::hours(38));
+    }
+
+    #[test]
+    fn previous_note_uses_latest_entry_including_empty_notes_and_cached_weeks() {
+        let mut state = State::default();
+        state.set_current_week_normalized(2026, 18);
+        let monday = state.days()[0].date;
+        assert_eq!(state.previous_duration_note(monday), "");
+        let mut entry = crate::ui::Duration::default();
+        entry.set_note("PROJ-123".to_owned());
+        state.days_mut()[0].durations.push(entry);
+        assert_eq!(state.previous_duration_note(monday), "PROJ-123");
+        assert_eq!(state.previous_duration_note(state.days()[2].date), "PROJ-123");
+        state.save_current_week();
+        state.days_mut()[0].durations.clear();
+        assert_eq!(
+            state.previous_duration_note(state.days()[2].date),
+            "",
+            "ignore stale cached copies of visible days"
+        );
+        let mut entry = crate::ui::Duration::default();
+        entry.set_note("PROJ-456".to_owned());
+        state.days_mut()[4].durations.push(entry);
+        assert_eq!(state.previous_duration_note(monday), "", "ignore future days");
+        state.shift_weeks(1);
+        assert_eq!(state.previous_duration_note(state.days()[0].date), "PROJ-456");
+        state.days_mut()[0].durations.push(crate::ui::Duration::default());
+        assert_eq!(state.previous_duration_note(state.days()[0].date), "");
+        assert_eq!(state.previous_duration_note(state.days()[1].date), "", "do not skip an empty note");
+        state.shift_weeks(1);
+        assert_eq!(
+            state.previous_duration_note(state.days()[0].date),
+            "",
+            "empty notes also carry across weeks"
+        );
     }
 
     #[test]

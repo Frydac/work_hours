@@ -41,6 +41,18 @@ The app already models:
 
 Keeping those in separate tables avoids repeating `target_minutes` and `enabled` on every entry row.
 
+## Duration notes
+
+Optional duration notes are stored as strings in `work_entries.metadata.note`, for example:
+
+```json
+{"note": "PROJ-123"}
+```
+
+The app preserves unrelated metadata keys when editing a note. Clearing a note removes its key; unchanged metadata is returned exactly as loaded. Notes use the existing schema and save RPC, so no additional migration is required.
+
+Notes remain local until `Save`, and are included in local persistence and undo/redo. A range with identical start/end times and a nonempty note must be completed or removed before saving, refreshing, or changing weeks while logged in. Empty unfinished ranges are omitted from saves.
+
 ## Auth
 
 Use Supabase Auth. Do not create a separate users table for application login.

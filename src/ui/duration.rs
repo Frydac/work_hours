@@ -20,6 +20,10 @@ pub struct Duration {
     end: ui::TimePoint,
     #[serde(default)]
     end_day_offset: i8,
+    #[serde(default)]
+    note: String,
+    #[serde(default = "empty_metadata")]
+    metadata: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,6 +38,8 @@ impl Default for Duration {
             start: ui::TimePoint::now(),
             end: ui::TimePoint::now(),
             end_day_offset: 0,
+            note: String::new(),
+            metadata: empty_metadata(),
         }
     }
 }
@@ -49,7 +55,116 @@ impl Duration {
             start: ui::TimePoint::from_offset_datetime(start),
             end: ui::TimePoint::from_offset_datetime(end),
             end_day_offset,
+            note: String::new(),
+            metadata: empty_metadata(),
         }
+    }
+
+    pub fn with_metadata(mut self, metadata: serde_json::Value) -> Self {
+        self.note = metadata
+            .get("note")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        self.metadata = metadata;
+        self
+    }
+
+    pub fn note(&self) -> &str {
+        &self.note
+    }
+
+    pub fn set_note(&mut self, note: String) {
+        self.note = note;
+    }
+
+    /// Preserve the original metadata exactly unless the note was edited.
+    pub fn metadata(&self) -> serde_json::Value {
+        let original_note = self.metadata.get("note").and_then(serde_json::Value::as_str).unwrap_or_default();
+        if self.note == original_note {
+            return self.metadata.clone();
+        }
+        let mut metadata = self.metadata.as_object().cloned().unwrap_or_default();
+        if self.note.is_empty() {
+            metadata.remove("note");
+        } else {
+            metadata.insert("note".to_owned(), self.note.clone().into());
+        }
+        metadata.into()
+    }
+
+    pub fn note_id(&self) -> egui::Id {
+        egui::Id::new((self.row_id, "note"))
+    }
+
+    /// Renders the note below the time controls, consuming Tab before TextEdit
+    /// handles it so custom time editors remain in the same traversal order.
+    pub fn note_ui(&mut self, ui: &mut egui::Ui, focus_from_end: bool, has_next_row: bool) -> DurationOutput {
+        let id = self.note_id();
+        let mut focus_transfer = None;
+        let mut focus_end = false;
+        if ui.memory(|memory| memory.has_focus(id)) {
+            focus_end = ui.input_mut(|input| input.consume_key(egui::Modifiers::SHIFT, egui::Key::Tab));
+            if has_next_row && !focus_end && ui.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Tab)) {
+                focus_transfer = Some(DigitwiseEditorFocusTransfer {
+                    direction: DigitwiseEditorFocusDirection::Next,
+                    trigger: DigitwiseEditorFocusTrigger::Tab,
+                });
+            }
+        }
+        let width = ui.available_width();
+        let rect = egui::Rect::from_min_size(ui.next_widget_position(), egui::vec2(width, 0.0));
+        // egui 0.31 also allocates the full galley width for clipped single-line
+        // text. Isolate that allocation so long notes cannot grow the day card.
+        let mut editor_ui = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(rect)
+                .layout(egui::Layout::top_down(egui::Align::Min)),
+        );
+        editor_ui.set_clip_rect(
+            ui.clip_rect()
+                .intersect(egui::Rect::from_x_y_ranges(rect.x_range(), ui.clip_rect().y_range())),
+        );
+        let response = editor_ui.add(
+            egui::TextEdit::singleline(&mut self.note)
+                .id(id)
+                .hint_text("Note / Jira key")
+                .desired_width(width)
+                .lock_focus(has_next_row),
+        );
+        ui.advance_cursor_after_rect(response.rect);
+        if focus_from_end {
+            response.request_focus();
+            ui.memory_mut(|memory| {
+                memory.set_focus_lock_filter(
+                    id,
+                    egui::EventFilter {
+                        tab: has_next_row,
+                        horizontal_arrows: true,
+                        vertical_arrows: true,
+                        ..Default::default()
+                    },
+                )
+            });
+        }
+        if focus_end {
+            let end_id = egui::Id::new((self.row_id, "end")).with("minute");
+            request_digitwise_editor_focus(ui.ctx(), end_id, 1);
+            ui.memory_mut(|memory| {
+                let editor_id = egui::Id::new(end_id).with("editor");
+                memory.request_focus(editor_id);
+                memory.set_focus_lock_filter(
+                    editor_id,
+                    egui::EventFilter {
+                        tab: true,
+                        horizontal_arrows: true,
+                        vertical_arrows: true,
+                        ..Default::default()
+                    },
+                );
+            });
+        }
+        DurationOutput { focus_transfer }
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui) -> DurationOutput {
@@ -151,6 +266,10 @@ impl Duration {
     }
 }
 
+fn empty_metadata() -> serde_json::Value {
+    serde_json::json!({})
+}
+
 fn next_duration_row_id() -> u64 {
     NEXT_DURATION_ROW_ID.fetch_add(1, Ordering::Relaxed)
 }
@@ -184,4 +303,31 @@ pub fn format_duration(duration: time::Duration, format: &str) -> String {
         .replace("%H", &format!("{:02}", hours))
         .replace("%M", &format!("{:02}", minutes))
         .replace("%S", &format!("{:02}", seconds))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Duration;
+    use serde_json::json;
+
+    #[test]
+    fn legacy_durations_without_note_fields_still_load() {
+        let duration: Duration =
+            serde_json::from_value(json!({"start": {"hour": 9, "minute": 0}, "end": {"hour": 10, "minute": 30}})).unwrap();
+        assert_eq!(duration.note(), "");
+        assert_eq!(duration.metadata(), json!({}));
+        assert_eq!(duration.duration(), time::Duration::minutes(90));
+    }
+
+    #[test]
+    fn undo_and_redo_include_note_edits() {
+        let mut duration = Duration::default();
+        let mut undoer = egui::util::undoer::Undoer::default();
+        undoer.feed_state(0.0, &duration);
+        duration.set_note("PROJ-123".to_owned());
+        let undone = undoer.undo(&duration).unwrap().clone();
+        assert_eq!(undone.note(), "");
+        let redone = undoer.redo(&undone).unwrap();
+        assert_eq!(redone.note(), "PROJ-123");
+    }
 }

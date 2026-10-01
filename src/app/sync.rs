@@ -161,7 +161,9 @@ impl SyncState {
                 Some(snapshot) if snapshot.week == state.current_week_key() => current != snapshot.drafts,
                 _ => true,
             },
-            Err(_) => false,
+            // Invalid local entries are still unsaved work. Keep navigation and
+            // refresh blocked until the entry is corrected or explicitly removed.
+            Err(_) => true,
         }
     }
 
@@ -700,12 +702,10 @@ impl PendingAuthedOp {
     fn was_refreshed_after_failure(&self) -> bool {
         match self {
             Self::LoadWeek {
-                refreshed_after_failure,
-                ..
+                refreshed_after_failure, ..
             }
             | Self::SaveWeek {
-                refreshed_after_failure,
-                ..
+                refreshed_after_failure, ..
             } => *refreshed_after_failure,
         }
     }
@@ -713,12 +713,10 @@ impl PendingAuthedOp {
     fn mark_refreshed_after_failure(mut self) -> Self {
         match &mut self {
             Self::LoadWeek {
-                refreshed_after_failure,
-                ..
+                refreshed_after_failure, ..
             }
             | Self::SaveWeek {
-                refreshed_after_failure,
-                ..
+                refreshed_after_failure, ..
             } => *refreshed_after_failure = true,
         }
         self
@@ -834,6 +832,52 @@ mod tests {
     }
 
     #[test]
+    fn note_edits_and_unfinished_notes_are_unsaved_work() {
+        let mut state = State::default();
+        let date = state.days()[0].date;
+        let start = time::OffsetDateTime::from_unix_timestamp(1_776_667_200).unwrap();
+        state.days_mut()[0].durations = vec![crate::ui::Duration::new(date, start, start + time::Duration::hours(1))
+            .with_metadata(serde_json::json!({"note": "PROJ-123", "source": "import"}))];
+        let mut sync = SyncState {
+            stored_session: Some(crate::supabase::StoredSession {
+                access_token: "a".to_owned(),
+                refresh_token: "r".to_owned(),
+                expires_at: None,
+                user_id: "u".to_owned(),
+                email: None,
+            }),
+            synced_week: Some(WeekSyncSnapshot {
+                week: state.current_week_key(),
+                drafts: state
+                    .days()
+                    .iter()
+                    .map(WorkDayDraft::from_ui_day)
+                    .collect::<Result<_, _>>()
+                    .unwrap(),
+            }),
+            ..Default::default()
+        };
+        assert!(!sync.is_week_dirty(&state));
+        state.days_mut()[0].durations[0].set_note("PROJ-456".to_owned());
+        assert!(sync.is_week_dirty(&state));
+        assert!(!sync.can_change_week(&state));
+        assert!(!sync.can_refresh_week(&state));
+        state.days_mut()[0].durations[0].set_note("PROJ-123".to_owned());
+        assert!(!sync.is_week_dirty(&state));
+        let mut unfinished = crate::ui::Duration::new(date, start, start);
+        unfinished.set_note("PROJ-789".to_owned());
+        state.days_mut()[0].durations.push(unfinished);
+        assert!(sync.current_week_drafts(&state).is_err());
+        assert!(sync.is_week_dirty(&state));
+        assert!(!sync.can_refresh_week(&state));
+        assert!(!sync.can_change_week(&state));
+        state.days_mut()[0].durations.pop();
+        assert!(!sync.is_week_dirty(&state));
+        sync.stored_session = None;
+        assert!(sync.can_change_week(&state));
+    }
+
+    #[test]
     fn dirty_state_is_true_when_snapshot_week_differs() {
         let state = State::default();
         let mut sync = SyncState::default();
@@ -872,8 +916,12 @@ mod tests {
 
     #[test]
     fn auth_error_detector_matches_expired_session_shapes() {
-        assert!(is_auth_error("Supabase request failed with status 401 during save work day RPC: jwt expired"));
-        assert!(is_auth_error("Supabase request failed with status 403 during get work day range: not authenticated"));
+        assert!(is_auth_error(
+            "Supabase request failed with status 401 during save work day RPC: jwt expired"
+        ));
+        assert!(is_auth_error(
+            "Supabase request failed with status 403 during get work day range: not authenticated"
+        ));
         assert!(!is_auth_error("failed to save 2026-04-28: local date/time is ambiguous or invalid"));
     }
 }

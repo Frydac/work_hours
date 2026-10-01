@@ -184,7 +184,7 @@ fn render_main_panel(app: &mut TemplateApp, ctx: &egui::Context, _frame: &mut ef
         }
 
         week_scroll_area(ui, |ui| {
-            render_day_cards(ui, app.state.days_mut());
+            render_day_cards(ui, &mut app.state);
             render_week_summary(app, ui);
             ui.separator();
             powered_by_egui_and_eframe(ui);
@@ -219,9 +219,10 @@ fn day_card_columns(available_width: f32, day_count: usize) -> usize {
 
 /// Allocate complete cards before rendering their contents. All cards share the
 /// same parent UI, so their date-based IDs stay stable when they move between rows.
-fn render_day_cards(ui: &mut egui::Ui, days: &mut [crate::ui::Day]) -> Vec<egui::Rect> {
+fn render_day_cards(ui: &mut egui::Ui, state: &mut super::state::State) -> Vec<egui::Rect> {
     let available_width = ui.available_width();
-    let columns = day_card_columns(available_width, days.len());
+    let day_count = state.days().len();
+    let columns = day_card_columns(available_width, day_count);
     let width = DAY_CARD_WIDTH.min(available_width).max(0.0);
     let height_id = ui.id().with("day_card_height");
     let height = ui.ctx().data(|data| data.get_temp::<f32>(height_id)).unwrap_or(0.0);
@@ -229,10 +230,13 @@ fn render_day_cards(ui: &mut egui::Ui, days: &mut [crate::ui::Day]) -> Vec<egui:
     let origin = ui.next_widget_position();
     let mut top = origin.y;
     let mut bounds = egui::Rect::NOTHING;
-    let mut cards = Vec::with_capacity(days.len());
-    for row in days.chunks_mut(columns) {
+    let mut cards = Vec::with_capacity(day_count);
+    for row_start in (0..day_count).step_by(columns) {
         let mut bottom = top;
-        for (column, day) in row.iter_mut().enumerate() {
+        for column in 0..columns.min(day_count - row_start) {
+            let index = row_start + column;
+            let previous_note = state.previous_duration_note(state.days()[index].date).to_owned();
+            let day = &mut state.days_mut()[index];
             let position = egui::pos2(origin.x + column as f32 * (width + DAY_CARD_GAP), top);
             let rect = egui::Rect::from_min_size(position, egui::vec2(width, 0.0));
             let response = ui.allocate_new_ui(
@@ -240,7 +244,7 @@ fn render_day_cards(ui: &mut egui::Ui, days: &mut [crate::ui::Day]) -> Vec<egui:
                     .id_salt(("day_card", day.date))
                     .max_rect(rect)
                     .layout(egui::Layout::top_down(egui::Align::Min)),
-                |ui| day.ui(ui, width, height),
+                |ui| day.ui(ui, width, height, &previous_note),
             );
             natural_height = natural_height.max(response.inner.inner);
             let rect = response.inner.response.rect;
@@ -250,7 +254,7 @@ fn render_day_cards(ui: &mut egui::Ui, days: &mut [crate::ui::Day]) -> Vec<egui:
         }
         top = bottom + DAY_CARD_GAP;
     }
-    if !days.is_empty() {
+    if day_count > 0 {
         ui.advance_cursor_after_rect(bounds);
         if (natural_height - height).abs() > 0.1 {
             ui.ctx().data_mut(|data| data.insert_temp(height_id, natural_height));
@@ -342,7 +346,7 @@ mod tests {
                 |ctx| {
                     egui::CentralPanel::default().show(ctx, |ui| {
                         week_scroll_area(ui, |ui| {
-                            cards = render_day_cards(ui, app.state.days_mut());
+                            cards = render_day_cards(ui, &mut app.state);
                         });
                     });
                 },
@@ -374,12 +378,21 @@ mod tests {
         let mut app = TemplateApp::default();
         for (index, day) in app.state.days_mut().iter_mut().enumerate() {
             day.enabled = index != 4;
-            day.durations = (0..index + 1).map(|_| crate::ui::Duration::default()).collect();
+            day.durations = (0..index + 1)
+                .map(|_| {
+                    let mut duration = crate::ui::Duration::default();
+                    duration.set_note("PROJ-123 — a long note that must scroll inside the editor rather than widen the card".to_owned());
+                    duration
+                })
+                .collect();
         }
         let row_id = app.state.days()[4].durations[0].row_id();
         let hour_id = egui::Id::new((row_id, "start")).with("hour");
         request_digitwise_editor_focus(&ctx, hour_id, 0);
         for dark in [true, false] {
+            if !dark {
+                ctx.memory_mut(|memory| memory.request_focus(app.state.days()[4].durations[0].note_id()));
+            }
             ctx.set_visuals(if dark { egui::Visuals::dark() } else { egui::Visuals::light() });
             for width in [1250.0, 1000.0, 967.5, 968.0, 968.5, 760.0, 520.0, 260.0, 190.0, 140.0] {
                 // Reuse the context and render several frames to include cached
@@ -395,7 +408,7 @@ mod tests {
                             let output = week_scroll_area(ui, |ui| {
                                 let viewport = ui.max_rect();
                                 let columns = day_card_columns(ui.available_width(), app.state.days().len());
-                                let cards = render_day_cards(ui, app.state.days_mut());
+                                let cards = render_day_cards(ui, &mut app.state);
                                 for (index, rect) in cards.iter().enumerate() {
                                     if !ui.ctx().will_discard() {
                                         assert!((rect.height() - cards[0].height()).abs() < 0.1, "cards={cards:?}");
@@ -407,7 +420,10 @@ mod tests {
                                     );
                                     if index % columns != 0 {
                                         assert_eq!(rect.top(), cards[index - 1].top());
-                                        assert!(rect.left() >= cards[index - 1].right() + DAY_CARD_GAP - 0.1);
+                                        assert!(
+                                            rect.left() >= cards[index - 1].right() + DAY_CARD_GAP - 0.1,
+                                            "width={width}, cards={cards:?}"
+                                        );
                                     } else if index >= columns {
                                         let previous_row_bottom =
                                             cards[index - columns..index].iter().map(|r| r.bottom()).fold(0.0, f32::max);
@@ -421,7 +437,12 @@ mod tests {
                             assert!(output.content_size.y > output.inner_rect.height());
                         });
                     });
-                    assert!(ctx.memory(|m| m.has_focus(egui::Id::new(hour_id).with("editor"))));
+                    let focused_id = if dark {
+                        egui::Id::new(hour_id).with("editor")
+                    } else {
+                        app.state.days()[4].durations[0].note_id()
+                    };
+                    assert!(ctx.memory(|m| m.has_focus(focused_id)));
                 }
             }
         }

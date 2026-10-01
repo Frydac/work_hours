@@ -361,6 +361,17 @@ impl WorkDayDraft {
             enabled = day.enabled,
             "converting UI day into Supabase draft"
         );
+        if let Some(index) = day
+            .durations
+            .iter()
+            .position(|entry| entry.is_zero_length() && !entry.note().is_empty())
+        {
+            return Err(anyhow!(
+                "Enter a different end time for duration {} on {} before saving its note.",
+                index + 1,
+                day.date
+            ));
+        }
         let work_entries = day
             .durations
             .iter()
@@ -378,7 +389,7 @@ impl WorkDayDraft {
                 Ok(WorkEntryDraft {
                     starts_at,
                     ends_at,
-                    metadata: serde_json::Value::Object(Default::default()),
+                    metadata: entry.metadata(),
                     sort_index: i32::try_from(ix).context("too many entries in a single day")?,
                 })
             })
@@ -409,11 +420,10 @@ impl WorkDayDraft {
             .work_entries
             .into_iter()
             .map(|entry| {
-                Ok(ui::Duration::new(
-                    self.work_date,
-                    to_local_offset(entry.starts_at)?,
-                    to_local_offset(entry.ends_at)?,
-                ))
+                Ok(
+                    ui::Duration::new(self.work_date, to_local_offset(entry.starts_at)?, to_local_offset(entry.ends_at)?)
+                        .with_metadata(entry.metadata),
+                )
             })
             .collect::<Result<Vec<_>>>()?;
         Ok(day)
@@ -531,13 +541,73 @@ mod tests {
 
         let mut draft = WorkDayDraft::from_ui_day(&day).unwrap();
         draft.work_entries[0].metadata = json!({ "note": "pairing" });
-        let round_tripped = draft.into_ui_day().unwrap();
+        let round_tripped = draft.clone().into_ui_day().unwrap();
 
         assert_eq!(round_tripped.date, date);
         assert_eq!(round_tripped.enabled, day.enabled);
         assert_eq!(round_tripped.configured_target(), time::Duration::hours(8));
         assert_eq!(round_tripped.durations.len(), 1);
         assert_eq!(round_tripped.durations[0].duration(), time::Duration::hours(2));
+        assert_eq!(round_tripped.durations[0].note(), "pairing");
+        assert_eq!(WorkDayDraft::from_ui_day(&round_tripped).unwrap(), draft);
+    }
+
+    #[test]
+    fn notes_preserve_metadata_across_load_edit_clear_and_local_restart() {
+        let date = NaiveDate::from_ymd_opt(2026, 4, 20).unwrap();
+        let start = time::OffsetDateTime::from_unix_timestamp(1_776_667_200).unwrap();
+        let mut day = ui::Day::new("Monday".to_owned());
+        day.date = date;
+        day.durations = vec![ui::Duration::new(date, start, start + time::Duration::hours(2))];
+        let baseline = WorkDayDraft::from_ui_day(&day).unwrap();
+        for metadata in [
+            json!({}),
+            json!({"note": ""}),
+            json!({"note": "PROJ-123", "source": {"tool": "import"}}),
+            json!({"note": 123, "source": "import"}),
+            json!(null),
+            json!(["legacy"]),
+        ] {
+            let mut draft = baseline.clone();
+            draft.work_entries[0].metadata = metadata.clone();
+            let mut loaded = draft.clone().into_ui_day().unwrap();
+            assert_eq!(WorkDayDraft::from_ui_day(&loaded).unwrap(), draft);
+            loaded.durations[0].set_note(" PROJ-456 — café ☕ ".to_owned());
+            let restored: ui::Day = serde_json::from_str(&serde_json::to_string(&loaded).unwrap()).unwrap();
+            assert_eq!(restored, loaded);
+            let saved = WorkDayDraft::from_ui_day(&restored).unwrap();
+            assert_eq!(saved.work_entries[0].metadata["note"], " PROJ-456 — café ☕ ");
+            if let Some(source) = metadata.get("source") {
+                assert_eq!(&saved.work_entries[0].metadata["source"], source);
+            }
+            let mut reloaded = saved.into_ui_day().unwrap();
+            reloaded.durations[0].set_note(String::new());
+            let cleared = WorkDayDraft::from_ui_day(&reloaded).unwrap();
+            assert!(cleared.work_entries[0].metadata.get("note").is_none());
+            if let Some(source) = metadata.get("source") {
+                assert_eq!(&cleared.work_entries[0].metadata["source"], source);
+            }
+            assert_eq!(
+                cleared.work_entries[0].ends_at - cleared.work_entries[0].starts_at,
+                chrono::Duration::hours(2)
+            );
+        }
+    }
+
+    #[test]
+    fn a_note_on_an_unfinished_range_cannot_be_silently_skipped() {
+        let date = NaiveDate::from_ymd_opt(2026, 4, 20).unwrap();
+        let start = time::OffsetDateTime::from_unix_timestamp(1_776_667_200).unwrap();
+        let mut day = ui::Day::new("Monday".to_owned());
+        day.date = date;
+        day.durations = vec![ui::Duration::new(date, start, start)];
+        day.durations[0].set_note("PROJ-123".to_owned());
+        let error = WorkDayDraft::from_ui_day(&day).unwrap_err().to_string();
+        assert!(error.contains("end time"));
+        assert!(error.contains("2026-04-20"));
+        assert_eq!(day.durations[0].note(), "PROJ-123");
+        day.durations[0].set_note(String::new());
+        assert!(WorkDayDraft::from_ui_day(&day).unwrap().work_entries.is_empty());
     }
 
     #[test]
